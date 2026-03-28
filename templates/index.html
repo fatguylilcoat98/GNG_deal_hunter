@@ -12,6 +12,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>GNG Deal Hunter — We Got Your Back</title>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <link rel="stylesheet" href="/static/style.css"/>
 </head>
 <body>
@@ -30,7 +31,6 @@
       <div class="gng-online"><span class="online-dot"></span>GNG SYSTEM ONLINE</div>
       <div class="header-clock" id="header-clock">--:--:--</div>
     </div>
-
     <div class="logo-block">
       <div class="logo-icon-wrap">
         <div class="logo-icon">
@@ -49,40 +49,31 @@
         <div class="logo-tagline">TRUTH &nbsp;·&nbsp; SAFETY &nbsp;·&nbsp; WE GOT YOUR BACK</div>
       </div>
     </div>
-
     <p class="header-desc">
-      Drop a marketplace screenshot. We run it through the system.<br/>
-      <em>Know if the price is real before you ever hit reply.</em>
+      Drop up to 10 marketplace screenshots at once.<br/>
+      <em>We rank them — best deal to worst, and best resell value.</em>
     </p>
   </header>
 
   <!-- PIPELINE -->
   <div class="pipeline-bar" role="status" aria-live="polite">
     <div class="pipe-node" id="pn-upload">
-      <div class="pn-num">01</div>
-      <div class="pn-icon">📤</div>
-      <div class="pn-label">UPLOAD</div>
+      <div class="pn-num">01</div><div class="pn-icon">📤</div><div class="pn-label">UPLOAD</div>
       <div class="pn-glow" aria-hidden="true"></div>
     </div>
     <div class="pipe-track"><div class="pipe-fill" id="pf-1"></div></div>
     <div class="pipe-node" id="pn-extract">
-      <div class="pn-num">02</div>
-      <div class="pn-icon">🔍</div>
-      <div class="pn-label">EXTRACT</div>
+      <div class="pn-num">02</div><div class="pn-icon">🔍</div><div class="pn-label">EXTRACT</div>
       <div class="pn-glow" aria-hidden="true"></div>
     </div>
     <div class="pipe-track"><div class="pipe-fill" id="pf-2"></div></div>
     <div class="pipe-node" id="pn-compare">
-      <div class="pn-num">03</div>
-      <div class="pn-icon">⚖️</div>
-      <div class="pn-label">COMPARE</div>
+      <div class="pn-num">03</div><div class="pn-icon">⚖️</div><div class="pn-label">COMPARE</div>
       <div class="pn-glow" aria-hidden="true"></div>
     </div>
     <div class="pipe-track"><div class="pipe-fill" id="pf-3"></div></div>
     <div class="pipe-node" id="pn-verdict">
-      <div class="pn-num">04</div>
-      <div class="pn-icon">🎯</div>
-      <div class="pn-label">VERDICT</div>
+      <div class="pn-num">04</div><div class="pn-icon">🎯</div><div class="pn-label">VERDICT</div>
       <div class="pn-glow" aria-hidden="true"></div>
     </div>
   </div>
@@ -95,38 +86,31 @@
     </div>
 
     <div class="drop-zone" id="drop-zone" role="button" tabindex="0">
-      <input type="file" id="file-input" accept="image/*"/>
+      <input type="file" id="file-input" accept="image/*" multiple/>
       <div class="dz-rings" aria-hidden="true">
-        <div class="dzr dzr1"></div>
-        <div class="dzr dzr2"></div>
-        <div class="dzr dzr3"></div>
+        <div class="dzr dzr1"></div><div class="dzr dzr2"></div><div class="dzr dzr3"></div>
       </div>
       <div class="dz-cam">📸</div>
-      <div class="dz-main">DROP SCREENSHOT HERE</div>
-      <div class="dz-sub">tap to browse · any marketplace listing</div>
+      <div class="dz-main">DROP SCREENSHOTS HERE</div>
+      <div class="dz-sub">up to 10 images at once · tap to browse</div>
       <div class="dz-platforms">Facebook Marketplace &nbsp;·&nbsp; OfferUp &nbsp;·&nbsp; Craigslist</div>
     </div>
 
-    <div id="preview-wrap" style="display:none">
-      <div class="preview-meta">
-        <span class="preview-tag">✓ SCREENSHOT LOADED</span>
-        <button class="preview-clear" onclick="clearImage()">✕ REMOVE</button>
+    <!-- QUEUE -->
+    <div id="queue-wrap" style="display:none">
+      <div class="queue-header">
+        <span class="queue-label" id="queue-label">0 LISTINGS QUEUED</span>
+        <button class="queue-clear-btn" onclick="clearQueue()">✕ CLEAR ALL</button>
       </div>
-      <div class="preview-frame">
-        <img id="preview-img" alt="Listing screenshot"/>
-        <div class="pf-corner pfc-tl" aria-hidden="true"></div>
-        <div class="pf-corner pfc-tr" aria-hidden="true"></div>
-        <div class="pf-corner pfc-bl" aria-hidden="true"></div>
-        <div class="pf-corner pfc-br" aria-hidden="true"></div>
-      </div>
+      <div class="queue-list" id="queue-list"></div>
     </div>
 
     <div class="error-box" id="error-box" style="display:none" role="alert"></div>
 
-    <button class="btn-analyze" id="btn-analyze" onclick="runAnalysis()" disabled>
+    <button class="btn-analyze" id="btn-analyze" onclick="runBatch()" disabled>
       <span class="btn-a-bg" aria-hidden="true"></span>
       <span class="btn-a-inner">
-        <span id="btn-text">⚡ ANALYZE LISTING</span>
+        <span id="btn-text">⚡ ANALYZE ALL LISTINGS</span>
         <span id="btn-spinner" class="spinner" style="display:none" aria-hidden="true"></span>
       </span>
     </button>
@@ -135,118 +119,48 @@
   <!-- RESULTS -->
   <div id="results" style="display:none" aria-live="polite">
 
-    <!-- VERDICT REVEAL -->
-    <div class="verdict-reveal" id="verdict-reveal">
-      <div class="vr-eyebrow">// SYSTEM VERDICT</div>
-      <div class="vr-main">
-        <div class="vr-icon" id="vr-icon"></div>
-        <div class="vr-word" id="vr-word"></div>
+    <!-- BATCH SUMMARY BAR -->
+    <div class="batch-summary" id="batch-summary">
+      <div class="bs-stat">
+        <div class="bs-val" id="bs-count">0</div>
+        <div class="bs-label">ANALYZED</div>
       </div>
-      <div class="vr-sub" id="vr-sub"></div>
-      <div class="vr-conf-wrap">
-        <span class="vr-conf-label">CONFIDENCE</span>
-        <span class="vr-conf-badge" id="vr-conf"></span>
+      <div class="bs-divider"></div>
+      <div class="bs-stat">
+        <div class="bs-val green" id="bs-best-deal">—</div>
+        <div class="bs-label">BEST DEAL SCORE</div>
       </div>
-      <div class="vr-scan" aria-hidden="true"><div class="vr-scan-line"></div></div>
-    </div>
-
-    <!-- PRICE COMPARE -->
-    <div class="price-compare">
-      <div class="pc-card listed">
-        <div class="pc-eyebrow">LISTED PRICE</div>
-        <div class="pc-val" id="res-listed">—</div>
-        <div class="pc-note">from screenshot</div>
+      <div class="bs-divider"></div>
+      <div class="bs-stat">
+        <div class="bs-val teal" id="bs-best-resell">—</div>
+        <div class="bs-label">BEST RESELL SCORE</div>
       </div>
-      <div class="pc-divider" aria-hidden="true">
-        <div class="pcd-line"></div>
-        <div class="pcd-vs">VS</div>
-        <div class="pcd-line"></div>
-      </div>
-      <div class="pc-card range">
-        <div class="pc-eyebrow">FAIR RANGE</div>
-        <div class="pc-val" id="res-range">—</div>
-        <div class="pc-note">based on category + condition</div>
+      <div class="bs-divider"></div>
+      <div class="bs-stat">
+        <div class="bs-val" id="bs-underpriced">0</div>
+        <div class="bs-label">UNDERPRICED</div>
       </div>
     </div>
 
-    <!-- DATA PANEL -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title"><span class="ptb">[</span> EXTRACTED DATA <span class="ptb">]</span></div>
-        <button class="edit-toggle-btn" onclick="toggleEdit()" id="edit-toggle">✏️ EDIT</button>
-      </div>
-
-      <div id="extracted-view">
-        <div class="data-grid">
-          <div class="data-cell">
-            <div class="dc-label">ITEM</div>
-            <div class="dc-val" id="view-name">—</div>
-          </div>
-          <div class="data-cell">
-            <div class="dc-label">CATEGORY</div>
-            <div class="dc-val" id="view-cat">—</div>
-          </div>
-          <div class="data-cell">
-            <div class="dc-label">CONDITION</div>
-            <div class="dc-val" id="view-cond">—</div>
-          </div>
-          <div class="data-cell">
-            <div class="dc-label">LISTED PRICE</div>
-            <div class="dc-val" id="view-price">—</div>
-          </div>
-        </div>
-        <div class="data-desc" id="view-desc"></div>
-        <div class="signals-row" id="signals-wrap"></div>
-      </div>
-
-      <div id="extracted-edit" class="edit-mode" style="display:none">
-        <div class="edit-notice">⚠ Correct any field below and re-run to update the verdict.</div>
-        <div class="edit-grid">
-          <div class="field-group">
-            <label for="edit-price">LISTED PRICE ($)</label>
-            <input type="number" id="edit-price" placeholder="e.g. 250" min="0" step="0.01"/>
-          </div>
-          <div class="field-group">
-            <label for="edit-cat">CATEGORY</label>
-            <select id="edit-cat">
-              <option value="laptop">Laptop</option>
-              <option value="phone">Phone / Smartphone</option>
-              <option value="tv">TV / Monitor</option>
-              <option value="bike">Bike</option>
-              <option value="couch">Couch / Sofa</option>
-              <option value="table">Table / Desk</option>
-              <option value="chair">Chair</option>
-              <option value="dresser">Dresser</option>
-              <option value="appliance">Appliance</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div class="field-group">
-            <label for="edit-cond">CONDITION</label>
-            <select id="edit-cond">
-              <option value="excellent">Excellent / Like New</option>
-              <option value="good">Good</option>
-              <option value="fair">Fair</option>
-              <option value="poor">Poor / For Parts</option>
-              <option value="unknown">Unknown</option>
-            </select>
-          </div>
-        </div>
-        <button class="btn-revalue" onclick="applyEdits()">↻ RE-RUN VALUATION</button>
-      </div>
+    <!-- SORT CONTROLS -->
+    <div class="sort-bar">
+      <span class="sort-label">SORT BY</span>
+      <button class="sort-btn active" id="sort-deal" onclick="sortResults('deal')">💰 BEST DEAL</button>
+      <button class="sort-btn" id="sort-resell" onclick="sortResults('resell')">🔄 BEST RESELL</button>
+      <button class="sort-btn" id="sort-price" onclick="sortResults('price')">$ PRICE LOW→HIGH</button>
     </div>
 
-    <!-- RISK NOTE -->
-    <div class="risk-panel" id="risk-panel">
-      <div class="rp-header">
-        <div class="rp-label">// RISK ASSESSMENT</div>
-        <div class="rp-icon" id="risk-icon"></div>
-      </div>
-      <div class="rp-text" id="risk-text"></div>
+    <!-- SAVE ALL BUTTON -->
+    <div class="save-all-wrap">
+      <button class="btn-save-all" onclick="saveAllPDF()">
+        📄 SAVE FULL REPORT AS PDF
+      </button>
     </div>
 
-    <button class="btn-reset" onclick="resetApp()">← ANALYZE ANOTHER LISTING</button>
+    <!-- RESULTS LIST -->
+    <div id="results-list"></div>
 
+    <button class="btn-reset" onclick="resetApp()">← ANALYZE MORE LISTINGS</button>
   </div>
 
   <footer class="site-footer">
