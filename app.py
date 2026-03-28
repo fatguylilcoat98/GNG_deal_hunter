@@ -1,5 +1,5 @@
 """
-Price Guard — Marketplace Screenshot Checker
+GNG Deal Hunter — Marketplace Screenshot Checker
 The Good Neighbor Guard
 Built by Christopher Hughes · Sacramento, CA
 Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # 64MB — batch uploads
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
@@ -37,8 +37,15 @@ PRICE_RANGES = {
     "other":     {"poor": (20, 60),    "fair": (50, 150),   "good": (120, 300),  "excellent": (250, 700)},
 }
 
+# Resell multipliers — how much of fair-high you can typically flip for
+RESELL_MULTIPLIER = {
+    "laptop": 0.85, "phone": 0.90, "tv": 0.70, "bike": 0.80,
+    "couch": 0.60,  "table": 0.65, "chair": 0.65, "dresser": 0.65,
+    "appliance": 0.72, "other": 0.65,
+}
+
 VALID_CATEGORIES = set(PRICE_RANGES.keys())
-VALID_CONDITIONS = {"poor", "fair", "good", "excellent", "unknown"}
+VALID_CONDITIONS  = {"poor", "fair", "good", "excellent", "unknown"}
 
 
 def allowed_file(filename):
@@ -51,13 +58,12 @@ def normalize_category(raw):
     raw = raw.lower().strip()
     if raw in VALID_CATEGORIES:
         return raw
-    # Fuzzy map common synonyms
     synonyms = {
         "sofa": "couch", "sectional": "couch", "loveseat": "couch",
         "television": "tv", "monitor": "tv", "screen": "tv",
         "smartphone": "phone", "iphone": "phone", "android": "phone", "cell": "phone",
         "computer": "laptop", "notebook": "laptop", "macbook": "laptop",
-        "bicycle": "bike", "bicycle": "bike", "ebike": "bike",
+        "bicycle": "bike", "ebike": "bike",
         "desk": "table", "dining table": "table",
         "armchair": "chair", "recliner": "chair", "office chair": "chair",
         "refrigerator": "appliance", "fridge": "appliance", "washer": "appliance",
@@ -88,80 +94,89 @@ def normalize_condition(raw):
 
 
 def get_price_range(category, condition):
-    cat = normalize_category(category)
+    cat  = normalize_category(category)
     cond = condition if condition in ("poor", "fair", "good", "excellent") else "fair"
     return PRICE_RANGES.get(cat, PRICE_RANGES["other"]).get(cond, (50, 200))
 
 
 def run_valuation(listed_price, category, condition):
-    """
-    Compare listed price against fair range and return verdict + confidence.
-    """
-    cat = normalize_category(category)
+    cat  = normalize_category(category)
     cond = normalize_condition(condition)
 
-    confidence_deductions = 0
-    if cat == "other":
-        confidence_deductions += 1
+    deductions = 0
+    if cat == "other":  deductions += 1
     if cond == "unknown":
-        confidence_deductions += 1
-        cond = "fair"  # default to fair range for unknown condition
+        deductions += 1
+        cond = "fair"
 
     lo, hi = get_price_range(cat, cond)
 
+    # Resell estimate
+    resell_mult = RESELL_MULTIPLIER.get(cat, 0.65)
+    resell_low  = round(lo * resell_mult)
+    resell_high = round(hi * resell_mult)
+
     if listed_price is None:
-        confidence_deductions += 2
         return {
-            "low": lo,
-            "high": hi,
-            "verdict": None,
-            "confidence": "low",
-            "risk_note": "Price could not be extracted from the image. Enter it manually to get a verdict."
+            "low": lo, "high": hi,
+            "resell_low": resell_low, "resell_high": resell_high,
+            "verdict": None, "confidence": "low",
+            "deal_score": None, "resell_score": None,
+            "risk_note": "Price not detected. Enter it manually for a verdict."
         }
 
     price = float(listed_price)
 
-    # Verdict logic
+    # Verdict
     if price < lo * 0.65:
         verdict = "UNDERPRICED"
-        risk_note = "Price is unusually low. Possible scam, hidden damage, or stolen item — verify condition and seller legitimacy before acting."
-        confidence_deductions += 1
+        risk_note = "Price is unusually low. Verify condition and seller legitimacy before acting."
     elif price <= hi:
         verdict = "FAIR"
-        risk_note = "Looks within normal range based on this category and condition."
+        risk_note = "Looks within normal range based on category and condition."
     else:
         verdict = "OVERPRICED"
-        risk_note = "Price appears above expected range. Compare with similar listings before buying."
+        risk_note = "Price is above expected range. Compare with similar listings first."
 
-    # Confidence scoring
-    if confidence_deductions == 0:
-        confidence = "high"
-    elif confidence_deductions == 1:
-        confidence = "medium"
+    # Deal score: 0–100. Higher = better deal.
+    # 100 = at the floor, 0 = way over ceiling
+    mid = (lo + hi) / 2
+    if price <= lo:
+        deal_score = 100
+    elif price <= mid:
+        deal_score = int(75 + 25 * (mid - price) / (mid - lo)) if mid != lo else 75
+    elif price <= hi:
+        deal_score = int(75 * (hi - price) / (hi - mid)) if hi != mid else 37
     else:
-        confidence = "low"
+        over = price - hi
+        deal_score = max(0, int(25 - 25 * (over / hi)))
+
+    # Resell score: 0–100. Higher = more flip potential.
+    # Based on how much margin between listed price and resell ceiling
+    margin = resell_high - price
+    margin_pct = margin / resell_high if resell_high else 0
+    resell_score = max(0, min(100, int(50 + margin_pct * 50)))
+
+    if deductions == 0:  confidence = "high"
+    elif deductions == 1: confidence = "medium"
+    else:                 confidence = "low"
 
     return {
-        "low": lo,
-        "high": hi,
-        "verdict": verdict,
-        "confidence": confidence,
+        "low": lo, "high": hi,
+        "resell_low": resell_low, "resell_high": resell_high,
+        "verdict": verdict, "confidence": confidence,
+        "deal_score": deal_score, "resell_score": resell_score,
         "risk_note": risk_note
     }
 
 
 def extract_from_image(image_bytes, mime_type):
-    """
-    Send image to OpenAI vision model and extract structured listing data.
-    Returns parsed dict or raises exception.
-    """
     b64 = base64.b64encode(image_bytes).decode("utf-8")
 
     system_prompt = (
         "You are a marketplace listing analyzer. "
         "Extract structured data from the provided screenshot. "
-        "Respond ONLY with valid JSON. No markdown, no explanation, no code fences. "
-        "JSON only."
+        "Respond ONLY with valid JSON. No markdown, no explanation, no code fences."
     )
 
     user_prompt = """Analyze this marketplace listing screenshot and extract the following fields.
@@ -189,32 +204,19 @@ Rules:
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{b64}",
-                            "detail": "high"
-                        }
-                    },
-                    {"type": "text", "text": user_prompt}
-                ]
-            }
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}", "detail": "high"}},
+                {"type": "text", "text": user_prompt}
+            ]}
         ],
         max_tokens=600,
         temperature=0.1
     )
 
     raw = response.choices[0].message.content.strip()
-
-    # Strip any accidental markdown fences
     raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.MULTILINE)
     raw = re.sub(r'\s*```$', '', raw, flags=re.MULTILINE)
-    raw = raw.strip()
-
-    return json.loads(raw)
+    return json.loads(raw.strip())
 
 
 # ─── ROUTES ──────────────────────────────────────────────────
@@ -226,19 +228,14 @@ def index():
 
 @app.route("/api/analyze-listing", methods=["POST"])
 def analyze_listing():
-    # Validate file present
     if "image" not in request.files:
-        return jsonify({"success": False, "error": "No image file uploaded."}), 400
+        return jsonify({"success": False, "error": "No image uploaded."}), 400
 
     file = request.files["image"]
-
     if file.filename == "":
         return jsonify({"success": False, "error": "No file selected."}), 400
-
     if not allowed_file(file.filename):
-        return jsonify({"success": False, "error": "File type not supported. Use PNG, JPG, JPEG, WEBP, or GIF."}), 400
-
-    # Check API key configured
+        return jsonify({"success": False, "error": "Unsupported file type."}), 400
     if not os.environ.get("OPENAI_API_KEY"):
         return jsonify({"success": False, "error": "Server not configured. OPENAI_API_KEY missing."}), 500
 
@@ -249,14 +246,10 @@ def analyze_listing():
                     "gif": "image/gif", "webp": "image/webp"}
         mime_type = mime_map.get(ext, "image/jpeg")
 
-        # Extract via vision model
         extracted = extract_from_image(image_bytes, mime_type)
-
-        # Normalize fields
         extracted["category"] = normalize_category(extracted.get("category"))
         extracted["condition"] = normalize_condition(extracted.get("condition"))
 
-        # Sanitize price
         price = extracted.get("listed_price")
         if price is not None:
             try:
@@ -265,42 +258,25 @@ def analyze_listing():
             except (ValueError, TypeError):
                 extracted["listed_price"] = None
 
-        # Run valuation
         valuation = run_valuation(
             listed_price=extracted.get("listed_price"),
             category=extracted.get("category"),
             condition=extracted.get("condition")
         )
 
-        return jsonify({
-            "success": True,
-            "extracted": extracted,
-            "valuation": valuation
-        })
+        return jsonify({"success": True, "extracted": extracted, "valuation": valuation})
 
     except json.JSONDecodeError as e:
-        return jsonify({
-            "success": False,
-            "error": f"Model returned invalid JSON: {str(e)}. Try a clearer screenshot."
-        }), 422
-
+        return jsonify({"success": False, "error": f"Model returned invalid JSON: {e}. Try a clearer screenshot."}), 422
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": f"Analysis failed: {str(e)}"
-        }), 500
+        return jsonify({"success": False, "error": f"Analysis failed: {e}"}), 500
 
 
 @app.route("/api/revalue", methods=["POST"])
 def revalue():
-    """
-    Lightweight endpoint for frontend re-valuation when user manually edits fields.
-    No image required — just category, condition, and price.
-    """
     data = request.get_json()
     if not data:
         return jsonify({"success": False, "error": "No data provided."}), 400
-
     try:
         price = data.get("listed_price")
         if price is not None:
